@@ -7,6 +7,12 @@ reset(){
     llResetScript();
 }
 
+#define urldecode(input) llUnescapeURL(str_replace("+", " ", input))
+
+ajaxCallback(key request, integer success, list data, list messages){
+	llHTTPResponse(request, 200, llList2Json(JSON_ARRAY, [success, llList2Json(JSON_OBJECT, data), mkarr(messages)]));
+}
+
 default
 {
     // URL is bound to the sim, so when you change sim, make sure to reset the application
@@ -40,7 +46,7 @@ default
                     PRIM_MEDIA_HOME_URL, myURL,
                     PRIM_MEDIA_HEIGHT_PIXELS, 256,
                     PRIM_MEDIA_WIDTH_PIXELS, 256,
-                    PRIM_MEDIA_PERMS_CONTROL, PRIM_MEDIA_PERM_NONE,
+                    //PRIM_MEDIA_PERMS_CONTROL, PRIM_MEDIA_PERM_NONE,
                     PRIM_MEDIA_PERMS_INTERACT, PRIM_MEDIA_PERM_OWNER
                 ]);
             }
@@ -54,55 +60,73 @@ default
             
             // Body is where we store the HTML data
             string bodyOut;
-            
+            string headOut;
+			string withHeader;
+			
+			
+			
+	// AJAX		
+			if(llList2String(path,0) == "save"){
+                // This is the text that should be saved
+				_saveSharedScript(jVal(body, [0]), ["t"], jVal(body,[1]));
+				_saveSharedScript(jVal(body, [0]), ["e"], (string)llGetUnixTime());
+				
+                ajaxCallback(id, TRUE, [], []);
+                return;
+            }
+			
+			else if(llList2String(path,0) == "del"){
+				string del = urldecode(llList2String(path,1));
+				_saveSharedScript(del, [], "");
+				ajaxCallback(id, TRUE, ["n", del], []);
+			}
+			
+			
+	// WEBPAGES
+			
+			
+			// EDITOR
             // First path string (method) was edit, so we'll load the editor.
-            if(llList2String(path,0) == "edit"){
+            else if(llList2String(path,0) == "edit"){
 				string header = llList2String(path,1);
 				string txt = "Write your note here.";
 				if(llGetListLength(path)<2)header = llGetSubString(body, 5, -1);
-				header = llUnescapeURL(str_replace("+", " ", header));
+				header = urldecode(header);
 				if(llGetListLength(path)>1)txt = _shared(header, ["t"]);
-				
-                bodyOut = "<h1><span id=\"n\">"+header+"</span> <a href=\""+myURL+"\">Back</a></h1><div contentEditable=\"true\" style=\"overflow:visible; min-height:50%\">"+txt+"</div><input type=\"button\" value=\"Save\" />
-<script>
-var btn = $('input[type=button]');
-btn.click(function(){
-    $.post('"+myURL+"/save', JSON.stringify([$('#n').html(), $('div:first').html()]))
-    .done(function(){btn.val('Saved!');}).fail(function(data){btn.val('Fail. Try again.');}).always(function(){setTimeout(function(){btn.val('Save');}, 3000);});
-});
-</script>";
+				withHeader = "withHeader";
+				headOut += "Diary.editPage = '"+header+"';";
+				bodyOut += "<div class=\"header\"><div class=\"rightheader\"><input type=\"button\" value=\"Save\" />
+<input type=\"button\" value=\"Back\" data-href=\""+myURL+"\" />
+</div><p>"+header+"</p><div class=\"clear\"></div></div>";
+				bodyOut += "<div class=\"editable\" contentEditable=\"true\" style=\"min-height:50%\">"+txt+"</div>";
             }
-            
-            // Method was save I didn't actually write any saving. But it gives you the text
-            else if(llList2String(path,0) == "save"){
-                // This is the text that should be saved
-				_saveSharedScript(jVal(body, [0]), ["t"], jVal(body,[1]));
-                llHTTPResponse(id, 200, "SUCCESS");
-                return;
-            }
-            
+			
+			// INDEX
             // No method, index page
             else{
 				string indexes = (string)llGetLinkMedia(_SHARED_CACHE_ROOT, 0, [PRIM_MEDIA_HOME_URL, PRIM_MEDIA_CURRENT_URL]);
 				list names = llDeleteSubList(llJson2List(llJsonGetValue(indexes, [SharedVarsVar$scriptName])),0,0);
 				
-				bodyOut+="<ul>";
-				list_shift_each(names, n, {
-					bodyOut+="<li><a href=\""+myURL+"/edit/"+llEscapeURL(n)+"\">"+n+"</a></li>";
-				})
-				bodyOut+="</ul>";
-				
-                bodyOut += "<form method=\"POST\" action=\""+myURL+"/edit"+"\">
+                bodyOut += "
+<div class=\"header\">
+<form method=\"POST\" id=\"insertNewNote\" action=\""+myURL+"/edit"+"\">
+<input type=\"submit\" class=\"rightheader\" value=\"Add Note\" />
 <input type=\"text\" placeholder=\"Name\" name=\"name\" />
-<input type=\"submit\" value=\"Add New Note\" />
-</form>";
+</form>
+<div class=\"clear\"></div>
+</div>";
+				bodyOut+="<div class=\"buttons\"></div>";
+				headOut+="Diary.buttons = "+mkarr(names)+";";
+				withHeader = "withHeader";
             }
             
             // Set content type as HTML (for formatting)
             llSetContentType(id, CONTENT_TYPE_HTML);
             
             // Send the HTML data to the prim media
-            llHTTPResponse(id, 200, "<html><head> <script src=\"https://ajax.googleapis.com/ajax/libs/jquery/2.1.3/jquery.min.js\"></script><style type=\"text/css\">body{background:#FAF;}h1{font-size:18px;}</style></head><body>"+bodyOut+"</body></html>");
+			string out = "<html><head><script>function Diary(){}"+headOut+" Diary.URL='"+myURL+"';</script><script src=\"http://panda.place/usr/wolfie/lsl/diary/js.js\"></script></head><body><div class=\"wrapper "+withHeader+"\"><div id=\"debug\" class=\"hidden\"></div>"+bodyOut+"</div></body></html>";
+            //llOwnerSay(out);
+			llHTTPResponse(id, 200, out);
         }
     }
 }
